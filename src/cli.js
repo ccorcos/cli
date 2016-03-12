@@ -3,6 +3,8 @@ import is from 'is-js'
 import Validation from './validation'
 const {Success, Failure} = Validation
 
+const nEquals = R.complement(R.equals)
+
 // headEquals :: x -> [y] -> Boolean
 const headEquals = R.useWith(R.equals, [R.identity, R.head])
 // lastEquals :: x -> [y] -> Boolean
@@ -22,7 +24,7 @@ const tokenIsParam = R.allPass([headEquals('<'), lastEquals('>')])
 // tokenIsVariadic :: String -> Boolean
 const tokenIsVariadic = R.pipe(R.slice(-4, -1), R.equals('...'))
 // argIsOption :: String -> Boolean
-const argIsOption = headEquals('-')
+const argIsOption = R.allPass([headEquals('-'), nEquals('--help'), nEquals('-h')])
 // getTokenName :: String -> String
 const getTokenName = R.replace(/[\<\>\.]/g, '')
 
@@ -238,8 +240,7 @@ const cli = (spec) => (cmd) => {
   // if there are no arges or a help flag, log out the help
   if (args.length === 0 || args[0] === '' || args[0] === '-h' || args[0] === '--help') {
     // XXX display help
-    console.log(help(spec))
-    return
+    return Success.of(help(spec))
   }
   // reformat the commands and options in the spec with tokens,
   // parse long and short options, etc.

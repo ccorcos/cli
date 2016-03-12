@@ -1,30 +1,39 @@
-the goal here is to learn some functional programming along the way
+# Extensible JavaScript CLI
 
-todo:
-- make my own custom validation data structure
-- support for async tasks to be returned
+This is a highly extensible cli tool. Its much like commander.js, but its much leaner and supports recursive commands. This makes it really easy to extend the tool with custom commands.
 
+I also used the project to become more familiar with the category theory I learned from MostlyAdequate and the result is a bulletproof program.
 
+# Getting Started
 
-build dist files:
+```js
+npm install --save cli # XXX not on npm yet
+```
 
-    ./node_modules/.bin/babel --presets es2015,stage-0 -d ./dist ./src
+XXX
 
-run unit tests
+# Development
 
-    ./node_modules/.bin/babel-node -s --presets es2015,stage-0 ./tests/test.js
+- build dist files:
 
+        ./node_modules/.bin/babel --presets es2015,stage-0 -d ./dist ./src
 
+- run unit tests
+
+        ./node_modules/.bin/babel-node -s --presets es2015,stage-0 ./tests/test.js
 
 # To Do
 
-- log format validation failures
 - better validation failure messages
+- format and log validation failure messages
+- better explanation of filtering --help tags
+- verify process.argv handles quoted string
+- fork and potentially chain returned async tasks
+- documentation by example
 
 - unit tests
 - continutous integration
 - code coverage
-
 
 # Docs
 
