@@ -3,11 +3,6 @@ import is from 'is-js'
 import Validation from './validation'
 const {Success, Failure} = Validation
 
-// todo
-// - better error reporting using .context
-// - smaller functions, more ramda
-// - trigger each error explicitly
-
 // headEquals :: x -> [y] -> Boolean
 const headEquals = R.useWith(R.equals, [R.identity, R.head])
 // lastEquals :: x -> [y] -> Boolean
@@ -103,7 +98,7 @@ const parseMultiOpt = (options, arg) => {
   // and then merge all the parameters together.
   return R.pipe(
     R.sequence(Success.of),
-    R.map(R.reduce(R.merge, {})),
+    R.map(R.reduce(R.merge, {}))
   )(result)
 }
 
@@ -194,15 +189,56 @@ const parseOptions = (options, args) => {
   }
 }
 
+const indentation = 2
+const spaces = n => R.join('', R.repeat(' ', n))
+const indent = (str) =>  spaces(indentation) + str
+const pad = R.curry((n, str) => str + spaces(n - str.length))
+const padprint = R.curry((n, {pattern, description}) => pad(n, pattern) + description )
+
+const help = (spec) => {
+  // determine max width of patterns
+  const getPatternLength =  R.pipe(R.prop('pattern'), R.length)
+  const commandLengths = R.map(getPatternLength, spec.commands)
+  const optionLengths = R.chain(R.pipe(
+    R.prop('options'),
+    R.map(getPatternLength),
+    R.map(R.add(indentation)),
+  ), spec.commands)
+
+  const maxlen = R.reduce(R.max, 0, R.concat(commandLengths, optionLengths)) + indentation
+
+  const commandHelp = R.chain((command) => {
+    return R.concat(
+      [padprint(maxlen, command)],
+      R.map((option) => {
+        return [padprint(maxlen, R.evolve({pattern: indent}, option))]
+      }, command.options)
+    )
+  }, spec.commands)
+
+  const mainHelp = [
+    ``,
+    `${spec.name} ${spec.version}`,
+    ``,
+    `${spec.description}`,
+    ``,
+  ]
+
+  return R.pipe(
+    R.map(indent),
+    R.join('\n')
+  )(R.concat(mainHelp, commandHelp)) + '\n'
+}
+
 // cli :: Spec -> String|Array -> Anything
 const cli = (spec) => (cmd) => {
   // cmd can be a string, in which we'll tokenize
   // and if its process.argv, then we'll remove node filename
   const args = cmdToArgs(cmd)
   // if there are no arges or a help flag, log out the help
-  if (args.length === 0 || args[0] === '--help') {
+  if (args.length === 0 || args[0] === '' || args[0] === '-h' || args[0] === '--help') {
     // XXX display help
-    console.log(JSON.stringify(spec, null, 2))
+    console.log(help(spec))
     return
   }
   // reformat the commands and options in the spec with tokens,
@@ -245,130 +281,4 @@ const cli = (spec) => (cmd) => {
   }
 }
 
-const log = console.log.bind(console)
-
-
-// constrains:
-// options always come at the end of a command
-// options do not carry into recursive calls
-
-const options = [{
-  pattern: '-b, --boolean',
-  description: 'boolean option example'
-}, {
-  pattern: '-t, --true',
-  description: 'another boolean example'
-}, {
-  pattern: '-f, --false',
-  description: 'another boolean example'
-}, {
-  pattern: '-a, --arg <arg>',
-  description: 'positional arg example'
-}, {
-  pattern: '-s, --args <foo> <bar>',
-  description: 'positional arg example'
-}, {
-  pattern: '-l, --list <list...>',
-  description: 'variadic arg example'
-}, {
-  pattern: '-z, --zoop <zoop> <zoops...>',
-  description: 'positional and variadic example'
-}]
-
-const main = {
-  name: 'main',
-  commands: [{
-    pattern: 'position <pos>',
-    description: 'positional command example',
-    options: options,
-    action: R.identity
-  }, {
-    pattern: 'positions <beep> <boop>',
-    description: 'multpile positional command example',
-    options: options,
-    action: R.identity
-  }, {
-    pattern: 'variadic <files...>',
-    description: 'variadic command example',
-    options: options,
-    action: R.identity
-  }, {
-    pattern: 'posvar <pvar> <vvar...>',
-    description: 'positional and variadic command example',
-    options: options,
-    action: R.identity
-  }, {
-    pattern: 'recur <loop>',
-    description: 'recursive command',
-    options: options,
-    action: (params) => {
-      return R.map(R.map(R.merge(params)), cli(main))
-    }
-  }]
-}
-
-const tests = [{
-    input: 'position x',
-    output: {pos: 'x'}
-  }, {
-    input: 'position x -b',
-    output: {pos: 'x', boolean: true}
-  }, {
-    input: 'position x -btf',
-    output: {pos: 'x', boolean: true, true: true, false: true}
-  }, {
-    input: 'position x -a 10',
-    output: {pos: 'x', arg: {arg: '10'}}
-  }, {
-    input: 'position x -s 10 abc',
-    output: {pos: 'x', args: {foo: '10', bar: 'abc'}}
-  }, {
-    input: 'position x -l 1 2 3 4 5 6',
-    output: {pos: 'x', list: {list: ['1', '2', '3', '4', '5', '6']}}
-  }, {
-    input: 'position x -z a b',
-    output: {pos: 'x', zoop: {zoop: 'a', zoops: ['b']}},
-  }, {
-    input: 'position x -a a -z a b',
-    output: {pos: 'x', arg: {arg: 'a'}, zoop: {zoop: 'a', zoops: ['b']}}
-  }, {
-    input: 'positions x y',
-    output: {beep: 'x', boop: 'y'}
-  }, {
-    input: 'positions x y -bf --true',
-    output: {beep: 'x', boop: 'y', boolean: true, true: true, false: true}
-  }, {
-    input: 'positions x y --arg 10',
-    output: {beep: 'x', boop: 'y', arg: {arg: '10'}}
-  }, {
-    input: 'variadic x y z',
-    output: {files: ['x', 'y', 'z']}
-  }, {
-    input: 'variadic x -l 10',
-    output: {files: ['x'], list: {list: ['10']}}
-  }, {
-    input: 'posvar 1 2 3',
-    output: {pvar: '1', vvar: ['2', '3']}
-  }, {
-    input: 'posvar 1 2 3 --zoop 4 5 6',
-    output: {pvar: '1', vvar: ['2', '3'], zoop: {zoop: '4', zoops: ['5', '6']}}
-  }, {
-    input: 'recur 66 -l 1 2 3 --true posvar 1 2 3 --zoop 4 5 6',
-    output: {loop: '66', list: {list: ['1', '2', '3']}, true: true, pvar: '1', vvar: ['2', '3'], zoop: {zoop: '4', zoops: ['5', '6']}}
-  }]
-
-// log(('positions x y -btf'))
-
-const f = cli(main)
-tests.forEach(({input, output}) => {
-  const result = f(input).value
-  if (!R.equals(result, output)) {
-    log(result, output)
-  }
-})
-
-
-
-// log(R.sequence(Success.of, [Success.of(10), Success.of(21)]))
-// log(R.sequence(Success.of, [Success.of(10), Failure.of([1])]))
-// log(R.sequence(Success.of, [Failure.of([2]), Failure.of([1])]))
+export default cli

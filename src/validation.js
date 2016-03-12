@@ -45,7 +45,6 @@ Failure.prototype.chain = function(_) {
   return this
 }
 
-// provide nested error context
 Success.prototype.context = function(_) {
   return this
 }
@@ -54,13 +53,13 @@ Failure.prototype.context = function(str) {
   return Failure.of([str, this.value])
 }
 
-// Success.prototype.cata = function(spec) {
-//   return this.map(spec.Success)
-// }
+Success.prototype.cata = function(spec) {
+  return this.map(spec.Success)
+}
 
-// Failure.prototype.cata = function(spec) {
-//   return this.map(spec.Failure)
-// }
+Failure.prototype.cata = function(spec) {
+  return this.map(spec.Failure)
+}
 
 Failure.prototype.toString = function() {
   return 'Failure(' + this.value + ')'
@@ -78,6 +77,10 @@ Validation.coerse = function(x) {
          x.isSuccess ? x :
          x.isFailure ? x :
          Success.of(x)
+}
+
+Validation.isValidation = function(x) {
+  return x instanceof Success || x instanceof Failure
 }
 
 export default Validation
