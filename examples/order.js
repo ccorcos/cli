@@ -29,12 +29,18 @@ const order = cli({
     options: [{
       pattern: '-d, --delivery <address>',
       description: 'specify an address to deliver to, otherwise pickup'
+    }, {
+      pattern: '-r, --rush',
+      description: 'rush the delivery order'
     }],
-    action({dishes, delivery}) {
+    action({dishes, delivery, rush}) {
       const commas = R.init(dishes).join(', ')
       const semantic = (commas ? [commas] : []).concat(R.last(dishes) ? [R.last(dishes)]: []).join(' and ')
       const method = delivery ? `delivered to ${delivery.address}.` : 'for pickup in 15 minutes.'
-      return `ordered ${semantic} ${method}`
+      if (rush && !delivery) {
+        return Validation.Failure.of(['Only chinese food delivery can be rushed.'])
+      }
+      return `ordered ${semantic} ${rush ? 'rush ' : ''}${method}`
     }
   }, {
     pattern: '<service>',
@@ -46,14 +52,32 @@ const order = cli({
   }]
 })
 
-console.log(order('pizza large').value)
-console.log(order('pizza small -p').value)
-console.log(order('pizza large -p -o').value)
-console.log(order('pizza large -po').value)
-console.log(order('chinese white-rice broccoli-beef sesame-chicken').value)
-console.log(order(['chinese', 'fried-rice', '--delivery', '225 Bush St, San Francisco']).value)
-console.log(order('mexican burrito -g').value)
-console.log(order('mexican taco').value)
-console.log(order('--help').value)
-console.log(order('mexican --help').value)
-// console.log(order(process.argv))
+const log = (x) => console.log(JSON.stringify(x, null, 2))
+
+// HELP
+// log(order('--help').value)
+// log(order('mexican --help').value)
+
+// SUCCESS
+// log(order('pizza large').value)
+// log(order('pizza small -p').value)
+// log(order('pizza large -p -o').value)
+// log(order('pizza large -po').value)
+// log(order('chinese white-rice broccoli-beef sesame-chicken').value)
+// log(order(['chinese', 'fried-rice', '--delivery', '225 Bush St, San Francisco']).value)
+// log(order('mexican burrito -g').value)
+// log(order('mexican taco').value)
+
+// FAILURES (with useful messages)
+// log(order('pizza -p').value) // Expected token "<size>", recieved an option "-p".
+// log(order('chinese').value) // Expected more arguments. The following tokens are missing: "<dishes...>".
+// log(order(['chinese', 'fried-rice', '--delivery']).value) // Expected more arguments. The following tokens are missing: "<address>".
+// log(order('piza').value) // Expected a command keyword "pizza". Recieved "piza".  AND  Unknown service "piza".
+// log(order('pizza medium -pa')) // Unknown boolean option "-a"
+// log(order('pizza medium -p -a')) // Could not parse option "-a".
+// log(order(['chinese', 'fried-rice', '-rd', '225 Bush St, San Francisco']).value)  // Only boolean options can be used as a multi-option and "-d, --delivery <address>" has positional arguments (referring to "-rd").
+// log(order('pizza large xyz').value) // Leftover arguments: xyz
+// log(order('pizza large -p xyz').value) // Leftover arguments: xyz
+
+// CLI
+// log(order(process.argv))

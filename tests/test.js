@@ -110,15 +110,13 @@ const tests = [{
 
 const program = cli(main)
 
-// tests.forEach(({input, output}) => {
-//   const result = program(input).value
-//   if (R.equals(result, output)) {
-//     console.log('.')
-//   } else {
-//     console.log('error:', input)
-//     console.log('expected:', output)
-//     console.log('result:', result)
-//   }
-// })
-
-program('')
+tests.forEach(({input, output}) => {
+  const result = program(input).value
+  if (R.equals(result, output)) {
+    console.log('.')
+  } else {
+    console.log('error:', input)
+    console.log('expected:', output)
+    console.log('result:', result)
+  }
+})

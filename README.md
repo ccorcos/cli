@@ -24,12 +24,12 @@ XXX
 
 # To Do
 
-- better validation failure messages
-- format and log validation failure messages
-- better explanation of filtering --help tags
-- verify process.argv handles quoted string
+- make tests for validation failure messages
+- webpack build distribution cli example
 - fork and potentially chain returned async tasks
-- documentation by example
+  - use inquierer as well
+
+- documentation by example, unit tests with example
 
 - unit tests
 - continutous integration

@@ -3,28 +3,24 @@ import is from 'is-js'
 import Validation from './validation'
 const {Success, Failure} = Validation
 
-const nEquals = R.complement(R.equals)
-
 // headEquals :: x -> [y] -> Boolean
 const headEquals = R.useWith(R.equals, [R.identity, R.head])
 // lastEquals :: x -> [y] -> Boolean
 const lastEquals = R.useWith(R.equals, [R.identity, R.last])
 // tokenize :: String -> [String]
 const tokenize = R.split(' ')
-// withoutNode :: [String] -> [String]
-const withoutNode = R.ifElse(headEquals('node'), R.tail, R.identity)
-// withoutFilename :: [String] -> [String]
-const withoutFilename = R.ifElse(headEquals(__filename), R.tail, R.identity)
 // justCliArgs :: [String] -> [String]
-const justCliArgs = R.pipe(withoutNode, withoutFilename)
+const justCliArgs = R.ifElse(headEquals('node'), R.drop(2), R.identity)
 // cmdToArgs :: (String|Array x) => x -> [String]
 const cmdToArgs = R.ifElse(is.string, R.pipe(tokenize, justCliArgs), justCliArgs)
 // tokenIsParam :: String -> Boolean
 const tokenIsParam = R.allPass([headEquals('<'), lastEquals('>')])
 // tokenIsVariadic :: String -> Boolean
 const tokenIsVariadic = R.pipe(R.slice(-4, -1), R.equals('...'))
+// argIsHelpOption :: String -> Boolean
+const argIsHelpOption = R.anyPass([R.equals('--help'), R.equals('-h'), R.equals('')])
 // argIsOption :: String -> Boolean
-const argIsOption = R.allPass([headEquals('-'), nEquals('--help'), nEquals('-h')])
+const argIsOption = headEquals('-')
 // getTokenName :: String -> String
 const getTokenName = R.replace(/[\<\>\.]/g, '')
 
@@ -35,21 +31,23 @@ const mergeResults = (a) => (b) => {
   return {params: R.merge(a.params, b.params), leftover: b.leftover}
 }
 
+// given positional argument tokens and a list of arguments, recursively
+// parse out the params and the leftover arguments.
 // parsePositionalTokens :: [String] -> [String] -> Validation Result
 const parsePositionalTokens = (tokens, args) => {
-  // given positional argument tokens and a list of arguments, parse out the params
-  // and the leftover arguments.
   if (tokens.length === 0) {
     return Success.of({params: {}, leftover: args})
   } else if (args.length === 0) {
-    return Failure.of([`Expected more arguments. The following tokens are missing: ${R.join(' ', tokens)}.`])
+    return Failure.of([`Expected more arguments. The following tokens are missing: "${R.join(' ', tokens)}".`])
   }
   const token = R.head(tokens)
   const name = getTokenName(token)
-  if (tokenIsParam(token)) {
+  if (argIsOption(args[0])) {
+    return Failure.of([`Expected token "${token}", recieved an option "${args[0]}".`])
+  } else if (tokenIsParam(token)) {
     if (tokenIsVariadic(token)) {
-      // for a variadic positional argument, slurp up all the arguments until any
-      // option arguments
+      // for a variadic positional argument, slurp up all the arguments
+      // until any option arguments
       const [tokenParams, leftoverArgs] = R.splitWhen(argIsOption, args)
       return Success.of({params: {[name]: tokenParams}, leftover: leftoverArgs})
     } else {
@@ -63,41 +61,39 @@ const parsePositionalTokens = (tokens, args) => {
     }
   } else {
     if (name === args[0]) {
-      // check that the exact token matches and recursively evaluate the leftover
-      // of the tokens
+      // check that the exact token matches and recursively evaluate
+      // the leftover of the tokens
       const leftoverArgs = R.tail(args)
       const result = Success.of({params:{}, leftover: leftoverArgs})
       const others = parsePositionalTokens(R.tail(tokens), leftoverArgs)
       return result.map(mergeResults).ap(others)
     } else {
-      return Failure.of(['Expected a command keyword "'+name+'".'])
+      return Failure.of([`Expected a command keyword "${name}". Recieved "${args[0]}".`])
     }
   }
 }
 
 // parseMultiOpt :: [Option] -> String -> Validation {}
 const parseMultiOpt = (options, arg) => {
-  // parse the multioption tag into individual tags
+  // first, parse the multi-option tag into individual tags
   // e.g. '-abc' -> ['-a', '-b', '-c']
-  const tags = R.pipe(
-    R.tail,
-    R.split(''),
-    R.map(R.concat('-'))
-  )(arg)
-  // match each tag to an option
-  const result = R.map((tag) => {
+  const tags = R.pipe(R.tail, R.split(''), R.map(R.concat('-')))(arg)
+  // match each tag the correct option spec
+  const result = tags.map((tag) => {
     const option = R.find(R.propEq('short', tag), options)
-    if (!option) { return Failure.of([`Unkown boolean option "${tag}"`]) }
-    // if there are positional tokens for this option, then it shouldn't be in a multioption
+    if (!option) { return Failure.of([`Unknown boolean option "${tag}"`]) }
+    // if there are positional tokens for this option, then it shouldn't
+    // be in a multi-option
     if (option.tokens.length > 0) {
-      return Failure.of([`Error while parsing "${arg}". Only boolean options can be used as ` +
-        `a multi-option and "${option.pattern}" has positional arguments.`])
+      return Failure.of([`Only boolean options can be used as ` +
+        `a multi-option and "${option.pattern}" has positional arguments ` +
+        `(referring to "${arg}").`])
     }
-    // set the option value
+    // set the option value which we'll merge together with the rest later
     return Success.of({[option.name]: true})
-  }, tags)
-  // we have an array of Validations that we need to turn into a Validation of an array
-  // and then merge all the parameters together.
+  })
+  // we have an array of Validations that we need to turn into a Validation
+  // of an array and then merge all the parameters together.
   return R.pipe(
     R.sequence(Success.of),
     R.map(R.reduce(R.merge, {}))
@@ -124,17 +120,50 @@ const parseSingleOpt = (option, args) => {
     if (option.tokens.length > 0) {
       // parse option positional tokens
       const result = parsePositionalTokens(option.tokens, R.tail(args))
-        // XXX this error gets mucked -- we should break this into multiple steps
-        .context(`While parsing the positional arguments for "${option.pattern}":`)
+        .context(`While parsing the positional arguments for option "${option.pattern}"`)
       return R.map(nestParams(option.name), result)
     } else {
       // simple boolean option
       return Success.of({params:{[option.name]: true}, leftover: R.tail(args)})
     }
   } else {
-    // unknown option tag
-    return Failure.of([`"${args[0]}" did not match option pattern ` +
-      `"${option.short}" or "${option.long}".`])
+    // mismatched option tag
+    return Failure.of([])
+  }
+}
+
+// parseOptions :: [Option] -> [String] -> Validation Result
+const parseOptions = (options, args) => {
+  // if there are no args, then all options have been parsed
+  if (args.length === 0) {
+    return Success.of({params:{}, leftover:[]})
+  }
+  // check if the next argument is an option
+  const next = R.head(args)
+  if (argIsMultiBoolOpt(next)) {
+    if (options.length === 0) { return Failure.of([`Unknown option "${next}".`]) }
+    // parse the mutli-option
+    const multiOpt = parseMultiOpt(options, next)
+      // place params in the proper result format
+      .map((params) => ({params, leftover:  R.tail(args)}))
+    // recursively parse the leftover options
+    const others = parseOptions(options, R.tail(args))
+    // and merge the results together
+    return multiOpt.map(mergeResults).ap(others)
+  } else if (argIsOption(next) && !argIsHelpOption(next)) {
+    // if theres a help option left over, it might be for a nested command
+    if (options.length === 0) { return Failure.of([`Unknown option "${next}".`]) }
+    // try to parse with all the options
+    const attempts = R.map((option) => parseSingleOpt(option, args), options)
+    const option = R.find((x) => x.isSuccess, attempts)
+    if (!option) { return R.sequence(Success.of, attempts.concat(Failure.of([`Could not parse option "${next}".`]))) }
+    // recursively parse the leftover of the options and merge back together
+    return option.chain((result) =>
+      parseOptions(options, result.leftover)
+        .map(mergeResults(result)))
+  } else {
+    // if there are no options, then pass on the leftover args
+    return Success.of({params:{}, leftover:args})
   }
 }
 
@@ -158,47 +187,54 @@ const reformatCommand = (command) => {
   }
 }
 
-// parseOptions :: [Option] -> [String] -> Validation Result
-const parseOptions = (options, args) => {
-  // if there are no args, then all options have been parsed
-  if (args.length === 0) {
-    return Success.of({params:{}, leftover:[]})
-  }
-  // check if the next argument is an option
-  const next = R.head(args)
-  if (argIsMultiBoolOpt(next)) {
-    // parse the mutliopt and place params in the proper result format
-    const multiOpt = R.map((params) => {
-      return {params, leftover:  R.tail(args)}
-    }, parseMultiOpt(options, next))
-    // recursively parse the leftover options
-    const others = parseOptions(options, R.tail(args))
-    // and merge the results together
-    return multiOpt.map(mergeResults).ap(others)
-  } else if (argIsOption(next)) {
-    // try to parse with all the options
-    const attempts = R.map((option) => parseSingleOpt(option, args), options)
-    const option = R.find((x) => x.isSuccess, attempts)
-    if (!option) { return Failure.of([`Unknown option "${next}".`]) }
-    // recursively parse the leftover of the options, merge back together
-    // and flatten using .chain
-    return option.chain((result) =>
-      parseOptions(options, result.leftover)
-        .map(mergeResults(result)))
-  } else {
-    // if there are no options, then pass on the leftover args
-    return Success.of({params:{}, leftover:args})
-  }
+// reformat spec to the parsed patterns
+// reformatSpec :: {} -> {}
+const reformatSpec = (spec) => {
+  return {...spec, commands: R.map(reformatCommand, spec.commands)}
 }
 
-const indentation = 2
-const spaces = n => R.join('', R.repeat(' ', n))
-const indent = (str) =>  spaces(indentation) + str
-const pad = R.curry((n, str) => str + spaces(n - str.length))
-const padprint = R.curry((n, {pattern, description}) => pad(n, pattern) + description )
+// parseArgsWithCommand :: [String] -> Command -> Validation x
+const parseArgsWithCommand = (args) => (command) =>
+  // attempt to parse out position tokens
+  parsePositionalTokens(command.tokens, args)
+    .context(`While parsing positional arguments for "${command.pattern}"`)
+    // attempt to parse out option arguments
+    .chain((result) =>
+      parseOptions(command.options, result.leftover)
+        .context(`While parsing options for "${command.pattern}"`)
+        // merge results with positional results
+        .map(mergeResults(result)))
+    // if all went well, then lets run the action
+    .chain(({params, leftover}) => {
+       const value = command.action(params)
+      if (is.fn(value)) {
+        // recursively call function with leftover arguments
+        return value(leftover)
+      } else if (leftover.length > 0) {
+        return Failure.of(['Leftover arguments: '+R.join(' ', leftover)])
+          .context(`While parsing with "${command.pattern}"`)
+      } else if (value && value.isFailure) {
+        // custom validation in action can return a failure
+        return value
+      } else {
+        return Success.of(value)
+      }
+    })
 
+const indentation = 2
+// spaces :: Number -> String
+const spaces = n => R.join('', R.repeat(' ', n))
+// indent :: String -> String
+const indent = (str) =>  spaces(indentation) + str
+// pad :: Number -> String -> String
+const pad = R.curry((n, str) => str + spaces(n - str.length))
+// formatln :: Number -> {} -> String
+const formatln = R.curry((n, {pattern, description}) => pad(n, pattern) + description)
+
+// help :: Spec -> String
 const help = (spec) => {
-  // determine max width of patterns
+  // determine max width of the command patterns and the indented
+  // options patterns
   const getPatternLength =  R.pipe(R.prop('pattern'), R.length)
   const commandLengths = R.map(getPatternLength, spec.commands)
   const optionLengths = R.chain(R.pipe(
@@ -206,80 +242,70 @@ const help = (spec) => {
     R.map(getPatternLength),
     R.map(R.add(indentation)),
   ), spec.commands)
-
-  const maxlen = R.reduce(R.max, 0, R.concat(commandLengths, optionLengths)) + indentation
-
-  const commandHelp = R.chain((command) => {
-    return R.concat(
-      [padprint(maxlen, command)],
-      R.map((option) => {
-        return [padprint(maxlen, R.evolve({pattern: indent}, option))]
-      }, command.options)
+  // determine the max length pattern
+  const maxlen = R.reduce(R.max, 0, R.concat(commandLengths, optionLengths))
+  // indent the descriptions from the max length
+  const padlen = maxlen + indentation
+  // format the pattern-description lines for all commands and their options
+  const commandHelpLines = R.chain((command) => R.concat(
+    // the command help line
+    [ formatln(padlen, command) ],
+    // format all the command option lines
+    command.options.map((option) =>
+      // indent the pattern before padding
+      [formatln(padlen, R.evolve({pattern: indent}, option))]
     )
-  }, spec.commands)
-
-  const mainHelp = [
+  ), spec.commands)
+  // format the program heading
+  const mainHelpLines = [
     ``,
     `${spec.name} ${spec.version}`,
     ``,
     `${spec.description}`,
     ``,
   ]
-
+  // indent everything and join lines
   return R.pipe(
     R.map(indent),
     R.join('\n')
-  )(R.concat(mainHelp, commandHelp)) + '\n'
+  )(R.concat(mainHelpLines, commandHelpLines)) + '\n'
 }
 
-// cli :: Spec -> String|Array -> Anything
-const cli = (spec) => (cmd) => {
-  // cmd can be a string, in which we'll tokenize
-  // and if its process.argv, then we'll remove node filename
-  const args = cmdToArgs(cmd)
-  // if there are no arges or a help flag, log out the help
-  if (args.length === 0 || args[0] === '' || args[0] === '-h' || args[0] === '--help') {
-    // XXX display help
+const formatError = R.pipe(
+  R.map(item => {
+    if (is.array(item)) {
+      return R.pipe(
+        formatError,
+        R.split('\n'),
+        R.map(indent),
+        R.join('\n')
+      )(item)
+    } else {
+      return indent(item)
+    }
+  }),
+  R.join('\n')
+)
+
+// input cmd can be a string, in which we'll tokenize
+// and if its process.argv, then we'll remove node filename
+// cli :: Spec -> String|Array -> Validation x
+const cli = R.pipe(reformatSpec, (spec) => R.pipe(cmdToArgs, (args) => {
+  // if there are no args or there is a help flag, return help
+  if (args.length === 0 || argIsHelpOption(args[0])) {
     return Success.of(help(spec))
   }
-  // reformat the commands and options in the spec with tokens,
-  // parse long and short options, etc.
-  spec = {
-    ...spec,
-    commands: R.map(reformatCommand, spec.commands)
-  }
   // attempt parse with each command
-  // XXX clean this up with ramda and smaller pure functions
-  const attempts = spec.commands.map((command) => {
-    // attempt to parse out position tokens
-    return parsePositionalTokens(command.tokens, args)
-      .chain((result) =>
-        // attempt to parse out option arguments
-        parseOptions(command.options, result.leftover)
-          .map(mergeResults(result)))
-      // if all went well, then lets run the action
-      .chain(({params, leftover}) => {
-         const value = command.action(params)
-        // if the action returns a function, then lets run
-        // that function with the leftover of the args
-        if (is.fn(value)) {
-          return value(leftover)
-        } else if (leftover.length > 0) {
-          return Failure.of(['Leftover arguments: '+R.join(' ', leftover)])
-        } else {
-          // XXX this could be a value or a
-          return Validation.coerse(value)
-        }
-      })
-    })
-
+  const attempts = R.map(parseArgsWithCommand(args), spec.commands)
   const result = R.find((x) => x.isSuccess, attempts)
+  // typically, you'll just console.log from a command-line application
+  // but you can also use it to return a result
   if (result) {
     return result
   } else {
-    // XXX throw / print out failure
-    return attempts
+    throw new Error('\n' + formatError(R.sequence(Failure.of, attempts).value) + '\n')
+    return
   }
-}
+}))
 
 export default cli
