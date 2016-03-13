@@ -1,6 +1,7 @@
 import R from 'ramda'
 import is from 'is-js'
 import Validation from './validation'
+import Task from 'data.task'
 const {Success, Failure} = Validation
 
 // headEquals :: x -> [y] -> Boolean
@@ -183,7 +184,7 @@ const reformatCommand = (command) => {
   return {
     ...command,
     tokens: tokenize(command.pattern),
-    options: R.map(reformatOption, command.options)
+    options: R.map(reformatOption, command.options || [])
   }
 }
 
@@ -206,7 +207,7 @@ const parseArgsWithCommand = (args) => (command) =>
         .map(mergeResults(result)))
     // if all went well, then lets run the action
     .chain(({params, leftover}) => {
-       const value = command.action(params)
+      const value = command.action(params)
       if (is.fn(value)) {
         // recursively call function with leftover arguments
         return value(leftover)

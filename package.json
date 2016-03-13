@@ -9,6 +9,7 @@
   "author": "Chet Corcos <ccorcos@gmail.com> (http://www.chetcorcos.com/)",
   "license": "MIT",
   "dependencies": {
+    "data.task": "^3.0.0",
     "is-js": "^0.1.1",
     "ramda": "^0.19.1"
   },

@@ -2,6 +2,7 @@ import cli from '../src/cli'
 import mexican from './mexican'
 import R from 'ramda'
 import Validation from '../src/validation'
+import Task from 'data.task'
 
 const order = cli({
   name: 'order',
@@ -81,3 +82,29 @@ const log = (x) => console.log(JSON.stringify(x, null, 2))
 
 // CLI
 // log(order(process.argv))
+
+const orderPizza = ({size, peperoni}) => new Task((rej, res) => {
+  setTimeout(function() {
+    res(`ordered a ${size} pizza${peperoni ? ' with peperoni.' : '.'}`)
+  }, 1000)
+})
+
+
+const order2 = cli({
+  name: 'order',
+  description: 'order food from your commandline!',
+  version: '0.0.1',
+  commands: [{
+    pattern: 'pizza <size>',
+    description: 'order a pizza from your local pizza shop',
+    options: [{
+      pattern: '-p, --peperoni',
+      description: 'add peperoni topping',
+    }],
+    action({size, peperoni}) {
+      return orderPizza({size, peperoni})
+    }
+  }]
+})
+
+console.log(order2('').value)
